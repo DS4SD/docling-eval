@@ -100,7 +100,8 @@ module = [
     "nltk.*",
     "huggingface_hub.*",
     "PIL.*",
-    "evaluate.*"
+    "evaluate.*",
+    "tqdm.*"
 ]
 ignore_missing_imports = true
 
