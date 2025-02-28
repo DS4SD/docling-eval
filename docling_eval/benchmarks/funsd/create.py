@@ -1,28 +1,14 @@
 import io
-import itertools
 import json
 import os
 import random
-import re
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from docling_core.types import DoclingDocument
-from docling_core.types.doc import (
-    BoundingBox,
-    CoordOrigin,
-    DocItemLabel,
-    GroupLabel,
-    ImageRef,
-    PageItem,
-    ProvenanceItem,
-    Size,
-    TableCell,
-    TableData,
-)
+from docling_core.types.doc import BoundingBox, ImageRef, PageItem, ProvenanceItem, Size
 from docling_core.types.doc.document import GraphCell, GraphData, GraphLink
 from docling_core.types.doc.labels import GraphCellLabel, GraphLinkLabel
-from docling_core.types.doc.tokens import TableToken
 from PIL import Image
 from tqdm import tqdm  # type: ignore
 
@@ -32,7 +18,6 @@ from docling_eval.benchmarks.constants import (
     EvaluationModality,
 )
 from docling_eval.benchmarks.utils import (
-    crop_bounding_box,
     docling_version,
     extract_images,
     from_pil_to_base64uri,
@@ -42,202 +27,6 @@ from docling_eval.benchmarks.utils import (
 from docling_eval.converters.conversion import create_image_docling_converter
 
 SHARD_SIZE = 1000
-
-
-def parse_texts(texts, tokens):
-    split_word = TableToken.OTSL_NL.value
-    split_row_tokens = [
-        list(y)
-        for x, y in itertools.groupby(tokens, lambda z: z == split_word)
-        if not x
-    ]
-    table_cells = []
-    r_idx = 0
-    c_idx = 0
-
-    def count_right(tokens, c_idx, r_idx, which_tokens):
-        span = 0
-        c_idx_iter = c_idx
-        while tokens[r_idx][c_idx_iter] in which_tokens:
-            c_idx_iter += 1
-            span += 1
-            if c_idx_iter >= len(tokens[r_idx]):
-                return span
-        return span
-
-    def count_down(tokens, c_idx, r_idx, which_tokens):
-        span = 0
-        r_idx_iter = r_idx
-        while tokens[r_idx_iter][c_idx] in which_tokens:
-            r_idx_iter += 1
-            span += 1
-            if r_idx_iter >= len(tokens):
-                return span
-        return span
-
-    for i, text in enumerate(texts):
-        cell_text = ""
-        if text in [
-            TableToken.OTSL_FCEL.value,
-            TableToken.OTSL_ECEL.value,
-            TableToken.OTSL_CHED.value,
-            TableToken.OTSL_RHED.value,
-            TableToken.OTSL_SROW.value,
-        ]:
-            row_span = 1
-            col_span = 1
-            right_offset = 1
-            if text != TableToken.OTSL_ECEL.value:
-                cell_text = texts[i + 1]
-                right_offset = 2
-
-            # Check next element(s) for lcel / ucel / xcel, set properly row_span, col_span
-            next_right_cell = texts[i + right_offset]
-
-            next_bottom_cell = ""
-            if r_idx + 1 < len(split_row_tokens):
-                next_bottom_cell = split_row_tokens[r_idx + 1][c_idx]
-
-            if next_right_cell in [
-                TableToken.OTSL_LCEL.value,
-                TableToken.OTSL_XCEL.value,
-            ]:
-                # we have horisontal spanning cell or 2d spanning cell
-                col_span += count_right(
-                    split_row_tokens,
-                    c_idx + 1,
-                    r_idx,
-                    [TableToken.OTSL_LCEL.value, TableToken.OTSL_XCEL.value],
-                )
-            if next_bottom_cell in [
-                TableToken.OTSL_UCEL.value,
-                TableToken.OTSL_XCEL.value,
-            ]:
-                # we have a vertical spanning cell or 2d spanning cell
-                row_span += count_down(
-                    split_row_tokens,
-                    c_idx,
-                    r_idx + 1,
-                    [TableToken.OTSL_UCEL.value, TableToken.OTSL_XCEL.value],
-                )
-
-            table_cells.append(
-                TableCell(
-                    text=cell_text.strip(),
-                    row_span=row_span,
-                    col_span=col_span,
-                    start_row_offset_idx=r_idx,
-                    end_row_offset_idx=r_idx + row_span,
-                    start_col_offset_idx=c_idx,
-                    end_col_offset_idx=c_idx + col_span,
-                )
-            )
-        if text in [
-            TableToken.OTSL_FCEL.value,
-            TableToken.OTSL_ECEL.value,
-            TableToken.OTSL_CHED.value,
-            TableToken.OTSL_RHED.value,
-            TableToken.OTSL_SROW.value,
-            TableToken.OTSL_LCEL.value,
-            TableToken.OTSL_UCEL.value,
-            TableToken.OTSL_XCEL.value,
-        ]:
-            c_idx += 1
-        if text == TableToken.OTSL_NL.value:
-            r_idx += 1
-            c_idx = 0
-    return table_cells, split_row_tokens
-
-
-def extract_tokens_and_text(s: str):
-    # Pattern to match anything enclosed by < > (including the angle brackets themselves)
-    pattern = r"(<[^>]+>)"
-    # Find all tokens (e.g. "<otsl>", "<loc_140>", etc.)
-    tokens = re.findall(pattern, s)
-    # Remove any tokens that start with "<loc_"
-    tokens = [
-        token
-        for token in tokens
-        if not (token.startswith("<loc_") or token in ["<otsl>", "</otsl>"])
-    ]
-    # Split the string by those tokens to get the in-between text
-    text_parts = re.split(pattern, s)
-    text_parts = [
-        token
-        for token in text_parts
-        if not (token.startswith("<loc_") or token in ["<otsl>", "</otsl>"])
-    ]
-    # Remove any empty or purely whitespace strings from text_parts
-    text_parts = [part for part in text_parts if part.strip()]
-
-    return tokens, text_parts
-
-
-def parse_table_content(otsl_content: str) -> TableData:
-    tokens, mixed_texts = extract_tokens_and_text(otsl_content)
-    table_cells, split_row_tokens = parse_texts(mixed_texts, tokens)
-
-    return TableData(
-        num_rows=len(split_row_tokens),
-        num_cols=(max(len(row) for row in split_row_tokens) if split_row_tokens else 0),
-        table_cells=table_cells,
-    )
-
-
-def update(true_doc, current_list, img, label, segment, bb):
-    bbox = BoundingBox.from_tuple(tuple(bb), CoordOrigin.TOPLEFT).to_bottom_left_origin(
-        page_height=true_doc.pages[1].size.height
-    )
-    prov = ProvenanceItem(page_no=1, bbox=bbox, charspan=(0, len(segment["text"])))
-    img_elem = crop_bounding_box(page_image=img, page=true_doc.pages[1], bbox=bbox)
-    if label == DocItemLabel.PICTURE:
-        current_list = None
-        try:
-            uri = from_pil_to_base64uri(img_elem)
-            imgref = ImageRef(
-                mimetype="image/png",
-                dpi=72,
-                size=Size(width=img_elem.width, height=img_elem.height),
-                uri=uri,
-            )
-        except Exception as e:
-            print(
-                "Warning: failed to resolve image uri for segment {} of doc {}. Caught exception is {}:{}. Setting null ImageRef".format(
-                    str(segment), str(true_doc.name), type(e).__name__, e
-                )
-            )
-            imgref = None
-
-        true_doc.add_picture(prov=prov, image=imgref)
-    elif label in [DocItemLabel.TABLE, DocItemLabel.DOCUMENT_INDEX]:
-        current_list = None
-        if segment["data"] is not None:
-            otsl_str = "".join(segment["data"]["otsl_seq"])
-            tbl_data = parse_table_content(otsl_str)
-            true_doc.add_table(data=tbl_data, prov=prov, label=label)
-    elif label in [DocItemLabel.FORM, DocItemLabel.KEY_VALUE_REGION]:
-        group_label = GroupLabel.UNSPECIFIED
-        if label == DocItemLabel.FORM:
-            group_label = GroupLabel.FORM_AREA
-        elif label == DocItemLabel.KEY_VALUE_REGION:
-            group_label = GroupLabel.KEY_VALUE_AREA
-        true_doc.add_group(label=group_label)
-    elif label == DocItemLabel.LIST_ITEM:
-        if current_list is None:
-            current_list = true_doc.add_group(label=GroupLabel.LIST, name="list")
-
-        true_doc.add_list_item(
-            text=segment["text"],
-            enumerated=False,
-            prov=prov,
-            parent=current_list,
-        )
-    elif label == DocItemLabel.SECTION_HEADER:
-        current_list = None
-        true_doc.add_heading(text=segment["text"], prov=prov)
-    else:
-        current_list = None
-        true_doc.add_text(label=label, text=segment["text"], prov=prov)
 
 
 def convert_bbox(bbox_data) -> BoundingBox:
@@ -251,20 +40,6 @@ def convert_bbox(bbox_data) -> BoundingBox:
         raise ValueError(
             "Invalid bounding box data; expected a list of four numbers or a BoundingBox instance."
         )
-
-
-def create_graph_cell(cell_data: Dict, label: GraphCellLabel) -> GraphCell:
-    bbox_instance = None
-    if "bbox" in cell_data and cell_data["bbox"] is not None:
-        bbox_instance = convert_bbox(cell_data["bbox"])
-
-    return GraphCell(
-        cell_id=cell_data["cell_id"],
-        text=cell_data["text"],
-        orig=cell_data.get("orig", cell_data["text"]),
-        bbox=bbox_instance,
-        label=label,
-    )
 
 
 def create_graph_link(
@@ -301,76 +76,10 @@ def get_overall_bbox(
     return bbox_instance
 
 
-# creation of K/V pairs
-def create_kv_pairs(data):
-    link_pairs = []
-    seg_with_id = {}
-    bbox_with_id = {}
-
-    _ids = data["annotation_ids"]
-    bboxes = data["boxes"]
-    segments = data["segments"]
-    links = data["links"]
-
-    # str to integer id mapping
-    int_ids = {id: i for i, id in enumerate(_ids)}
-
-    for i, seg in enumerate(segments):
-        seg_with_id[_ids[i]] = seg
-        bbox_with_id[_ids[i]] = bboxes[i]
-
-    for i, segment in enumerate(segments):
-        if links[i] is not None and links[i] in seg_with_id:
-            link_pairs.append(
-                {
-                    "value": {
-                        "cell_id": int_ids[_ids[i]],
-                        "bbox": bboxes[i],  # or segment["bbox"]
-                        "text": segment["text"],
-                        "label": GraphCellLabel.VALUE,
-                    },
-                    "key": {
-                        "cell_id": int_ids[links[i]],
-                        "bbox": bbox_with_id[
-                            links[i]
-                        ],  # or seg_with_id[links[i]]["bbox"]
-                        "text": seg_with_id[links[i]]["text"],
-                        "label": GraphCellLabel.KEY,
-                    },
-                }
-            )
-    return link_pairs
-
-
 def populate_key_value_item_from_funsd(
     doc: DoclingDocument, funsd_data: dict
 ) -> DoclingDocument:
-    """
-    example structure given in FUNSD JSON data:
-
-      {
-         "form": [
-             {
-                "id": 0,
-                "text": "Registration No.",
-                "box": [94, 169, 191, 186],
-                "linking": [[0, 1]],
-                "label": "question",
-                "words": [ ... ] # for our case it is too fine-grained, so we ignore it
-             },
-             {
-                "id": 1,
-                "text": "533",
-                "box": [209, 169, 236, 182],
-                "linking": [[0, 1]],
-                "label": "answer",
-                "words": [ ... ] # for our case it is too fine-grained, so we ignore it
-             }
-         ]
-      }
-
-    This function is to populate the key_value_items for each FUNSD JSON annotation.
-    """
+    """Populate the key-value item from the FUNSD data."""
     if "form" not in funsd_data:
         raise ValueError("Invalid FUNSD data: missing 'form' key.")
 
@@ -542,16 +251,3 @@ def create_funsd_dataset(
         num_train_rows=num_train_rows,
         num_test_rows=num_test_rows,
     )
-
-
-"""
-def main():
-    input_dir = Path("path/to/funsd")
-    output_dir = Path("path/to/output)
-
-    create_funsd_dataset(input_dir, output_dir, splits=["train", "test"], max_items=-1)
-
-
-if __name__ == "__main__":
-    main()
-"""
