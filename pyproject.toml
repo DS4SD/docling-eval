@@ -32,7 +32,8 @@ datasets = "^3.2.0"
 apted = "^1.0.3"
 Distance = "^0.1.3"
 # docling = "^2.25.0"
-docling = {extras = ["vlm"], version = "^2.25.0"}
+# docling = {extras = ["vlm"], version = "^2.25.0"}
+docling = { git = "https://github.com/DS4SD/docling.git", branch = "dev/new-tf-weights", extras = ["vlm"] }
 matplotlib = "^3.10.0"
 torch = "^2.5.1"
 torchmetrics = "^1.6.0"

@@ -1,7 +1,9 @@
 import glob
+import json
 import logging
 import random
 from pathlib import Path
+from typing import Dict, Optional
 
 import matplotlib.pyplot as plt
 from datasets import Dataset, load_dataset
@@ -100,7 +102,14 @@ class TableEvaluator:
         self._teds_scorer = TEDScorer()
         self._stopwords = ["<i>", "</i>", "<b>", "</b>", "<u>", "</u>"]
 
-    def __call__(self, ds_path: Path, split: str = "test") -> DatasetTableEvaluation:
+    def __call__(
+        self,
+        ds_path: Path,
+        split: str = "test",
+        structure_only: bool = False,
+        pred_dict: Optional[Dict[str, DoclingDocument]] = None,
+        intermediate_results_dir: Optional[Path] = None,
+    ) -> DatasetTableEvaluation:
         r"""
         Load a dataset in HF format. Expected columns with DoclingDocuments
         "GTDoclingDocument"
@@ -120,44 +129,76 @@ class TableEvaluator:
 
         table_evaluations = []
         table_struct_evaluations = []
+        evaluation_errors = 0
         for i, data in tqdm(
             enumerate(ds_selection),
             desc="Table evaluations",
             ncols=120,
             total=len(ds_selection),
         ):
+            doc_id = data[BenchMarkColumns.DOC_ID]
+
             gt_doc_dict = data[BenchMarkColumns.GROUNDTRUTH]
             gt_doc = DoclingDocument.model_validate_json(gt_doc_dict)
-            pred_doc_dict = data[BenchMarkColumns.PREDICTION]
-            pred_doc = DoclingDocument.model_validate_json(pred_doc_dict)
 
-            results = self._evaluate_tables_in_documents(
-                doc_id=data[BenchMarkColumns.DOC_ID],
-                true_doc=gt_doc,
-                pred_doc=pred_doc,
-                structure_only=False,
-            )
-            table_evaluations.extend(results)
+            if pred_dict is None:
+                pred_doc_dict = data[BenchMarkColumns.PREDICTION]
+                pred_doc = DoclingDocument.model_validate_json(pred_doc_dict)
+            else:
+                if doc_id.endswith(".png") or doc_id.endswith(".jpg"):
+                    doc_id = doc_id[:-4]
+                if doc_id not in pred_dict:
+                    _log.error("Missing pred_doc from dict argument for %s", doc_id)
+                    continue
+                pred_doc = pred_dict[doc_id]
 
-            results = self._evaluate_tables_in_documents(
-                doc_id=data[BenchMarkColumns.DOC_ID],
-                true_doc=gt_doc,
-                pred_doc=pred_doc,
-                structure_only=True,
-            )
-            table_struct_evaluations.extend(results)
+            try:
+                if not structure_only:
+                    results = self._evaluate_tables_in_documents(
+                        doc_id=data[BenchMarkColumns.DOC_ID],
+                        true_doc=gt_doc,
+                        pred_doc=pred_doc,
+                        structure_only=False,
+                    )
+                    table_evaluations.extend(results)
+
+                    if intermediate_results_dir:
+                        self._save_table_evalutions(
+                            False, i, doc_id, results, intermediate_results_dir
+                        )
+
+                results = self._evaluate_tables_in_documents(
+                    doc_id=data[BenchMarkColumns.DOC_ID],
+                    true_doc=gt_doc,
+                    pred_doc=pred_doc,
+                    structure_only=True,
+                )
+                table_struct_evaluations.extend(results)
+                if intermediate_results_dir:
+                    self._save_table_evalutions(
+                        True, i, doc_id, results, intermediate_results_dir
+                    )
+            except Exception as ex:
+                evaluation_errors += 1
+                _log.error("Error during tables evaluation for %s", doc_id)
+
+        _log.info(
+            "Finish. %s documents were skipped due to evaluation errors",
+            evaluation_errors,
+        )
 
         # Compute TED statistics for the entire dataset
         teds_simple = []
         teds_complex = []
         teds_all = []
-        for te in table_evaluations:
-            teds_all.append(te.TEDS)
+        if not structure_only:
+            for te in table_evaluations:
+                teds_all.append(te.TEDS)
 
-            if te.is_complex:
-                teds_complex.append(te.TEDS)
-            else:
-                teds_simple.append(te.TEDS)
+                if te.is_complex:
+                    teds_complex.append(te.TEDS)
+                else:
+                    teds_simple.append(te.TEDS)
 
         teds_struct = []
         for te in table_struct_evaluations:
@@ -241,3 +282,22 @@ class TableEvaluator:
                 )
 
         return table_evaluations
+
+    def _save_table_evalutions(
+        self,
+        structure_only: bool,
+        enunumerate_id: int,
+        doc_id: str,
+        table_evaluations: list[TableEvaluation],
+        save_dir: Path,
+    ):
+        r""" """
+        evals = [ev.model_dump() for ev in table_evaluations]
+
+        prefix = "struct" if structure_only else "struct_content"
+        evaluation_filename = f"TED_{prefix}_{enunumerate_id:05d}_{doc_id}.json"
+        evaluation_fn = save_dir / evaluation_filename
+        _log.info("Saving intermediate TEDs: %s", evaluation_fn)
+
+        with open(evaluation_fn, "w") as fd:
+            json.dump(evals, fd)
