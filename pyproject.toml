@@ -43,6 +43,9 @@ pillow = "^10.3.0"
 evaluate = "^0.4.3"
 nltk = "^3.9.1"
 beautifulsoup4 = "^4.12.3"
+boto3 = "^1.37.8"
+google-cloud-documentai = "^3.2.0"
+azure-ai-documentintelligence = "^1.0.0"
 
 [tool.poetry.group.dev.dependencies]
 black = {extras = ["jupyter"], version = "^24.4.2"}
