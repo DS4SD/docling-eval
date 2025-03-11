@@ -54,6 +54,7 @@ class BenchMarkNames(str, Enum):
     DOCLAYNETV1 = "DocLayNetV1"
     DOCLAYNETV2 = "DocLayNetV2"
     FUNSD = "FUNSD"
+    XFUND = "XFUND"
 
     # Table
     PUB1M = "Pub1M"
