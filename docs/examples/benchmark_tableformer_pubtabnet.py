@@ -26,7 +26,7 @@ def main():
     if True:
         log.info("Create the tableformer converted PubTabNet dataset")
         create_pubtabnet_tableformer_dataset(
-            output_dir=odir_tab, max_items=1000, do_viz=True
+            output_dir=odir_tab, end_index=1000, do_viz=True
         )
 
         log.info("Evaluate the tableformer for the PubTabNet dataset")

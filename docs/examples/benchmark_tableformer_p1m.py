@@ -25,7 +25,7 @@ def main():
 
     if True:
         log.info("Create the tableformer converted Pub1M dataset")
-        create_p1m_tableformer_dataset(output_dir=odir_tab, max_items=1000, do_viz=True)
+        create_p1m_tableformer_dataset(output_dir=odir_tab, end_index=1000, do_viz=True)
 
         log.info("Evaluate the tableformer converted Pub1M dataset")
         evaluate(

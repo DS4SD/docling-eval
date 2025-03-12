@@ -36,17 +36,18 @@ class DatasetStatistics(BaseModel):
         cumsum: float = 0.0
 
         table = []
-        for i in range(len(self.bins) - 1):
-            table.append(
-                [
-                    f"({self.bins[i + 0]:.3f}, {self.bins[i + 1]:.3f}]",
-                    f"{100.0 * float(self.hist[i]) / float(self.total):.2f}",
-                    f"{100.0 * cumsum:.2f}",
-                    f"{100.0 * (1.0-cumsum):.2f}",
-                    f"{self.hist[i]}",
-                ]
-            )
-            cumsum += float(self.hist[i]) / float(self.total)
+        if self.total > 0:
+            for i in range(len(self.bins) - 1):
+                table.append(
+                    [
+                        f"({self.bins[i + 0]:.3f}, {self.bins[i + 1]:.3f}]",
+                        f"{100.0 * float(self.hist[i]) / float(self.total):.2f}",
+                        f"{100.0 * cumsum:.2f}",
+                        f"{100.0 * (1.0-cumsum):.2f}",
+                        f"{self.hist[i]}",
+                    ]
+                )
+                cumsum += float(self.hist[i]) / float(self.total)
         return table, headers
 
     def save_histogram(self, figname: Path, name: str = ""):

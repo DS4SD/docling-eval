@@ -30,7 +30,6 @@ def main():
             split=split,
             output_dir=odir_lay,
             do_viz=True,
-            max_items=2000,
         )
 
         # Layout

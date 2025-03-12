@@ -24,9 +24,6 @@ from docling.pipeline.vlm_pipeline import VlmPipeline
 warnings.filterwarnings(action="ignore", category=UserWarning, module="pydantic|torch")
 warnings.filterwarnings(action="ignore", category=FutureWarning, module="easyocr")
 
-# Set logging level for the 'docling' package
-logging.getLogger("docling").setLevel(logging.WARNING)
-
 
 def create_pdf_docling_converter(
     page_image_scale: float = 2.0,

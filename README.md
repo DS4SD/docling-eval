@@ -22,24 +22,27 @@ Evaluate docling on various datasets. You can use the cli
 ```sh
 docling-eval % poetry run evaluate --help
 
- Usage: evaluate [OPTIONS]
+ Usage: python -m docling_eval.cli.main [OPTIONS]
 
-╭─ Options ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --task            -t      [create|evaluate|visualize]                                 Evaluation task [default: None] [required]                 │
-│ *  --modality        -m      [end-to-end|layout|table_structure|code_transcription|math  Evaluation modality [default: None] [required]             │
-│                              _transcription|reading_order|markdown_text|captioning|bbox                                                             │
-│                              es_text]                                                                                                               │
-│ *  --benchmark       -b      [DPBench|OmniDocBench|WordScape|PubLayNet|DocLayNetV1|DocL  Benchmark name [default: None] [required]                  │
-│                              ayNetV2|FUNSD|Pub1M|PubTabNet|FinTabNet|WikiTabNet]                                                                    │
-│ *  --output-dir      -o      PATH                                                        Output directory [default: None] [required]                │
-│    --input-dir       -i      PATH                                                        Input directory [default: None]                            │
-│    --converter_type  -c      [Docling|SmolDocling]                                       Type of document converter [default: Docling]              │
-│    --split           -s      TEXT                                                        Dataset split [default: test]                              │
-│    --artifacts-path  -a      PATH                                                        Load artifacts from local path [default: None]             │
-│    --max-items       -n      INTEGER                                                     How many items to load from the original dataset           │
-│                                                                                          [default: 1000]                                            │
-│    --help                                                                                Show this message and exit.                                │
-╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ *  --task            -t                 [create|evaluate|visualize]                                                                              Evaluation task [default: None] [required]                                                               │
+│ *  --modality        -m                 [end-to-end|layout|table_structure|code_transcription|math_transcription|reading_order|markdown_text|ca  Evaluation modality [default: None] [required]                                                           │
+│                                         ptioning|bboxes_text]                                                                                                                                                                                             │
+│ *  --benchmark       -b                 [DPBench|OmniDocBench|WordScape|PubLayNet|DocLayNetV1|DocLayNetV2|FUNSD|Pub1M|PubTabNet|FinTabNet|WikiT  Benchmark name [default: None] [required]                                                                │
+│                                         abNet]                                                                                                                                                                                                            │
+│ *  --output-dir      -o                 PATH                                                                                                     Output directory [default: None] [required]                                                              │
+│    --input-dir       -i                 PATH                                                                                                     Input directory [default: None]                                                                          │
+│    --converter_type  -c                 [Docling|SmolDocling]                                                                                    Type of document converter [default: Docling]                                                            │
+│    --split           -s                 TEXT                                                                                                     Dataset split [default: test]                                                                            │
+│    --artifacts-path  -a                 PATH                                                                                                     Load artifacts from local path [default: None]                                                           │
+│    --begin_index     -bi                INTEGER                                                                                                  Begin converting from the given sample index (inclusive). Zero based. [default: 0]                       │
+│    --end_index       -ei                INTEGER                                                                                                  End converting to the given sample index (exclusive). Zero based. -1 indicates to take all               │
+│                                                                                                                                                  [default: 1000]                                                                                          │
+│    --debug                --no-debug                                                                                                             Enable debugging [default: no-debug]                                                                     │
+│    --help                                                                                                                                        Show this message and exit.                                                                              │
+╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
 ```
 
 ## Benchmarks

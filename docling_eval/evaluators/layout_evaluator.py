@@ -1,7 +1,7 @@
 import glob
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
 from datasets import Dataset, load_dataset
@@ -17,6 +17,8 @@ from tqdm import tqdm  # type: ignore
 
 from docling_eval.benchmarks.constants import BenchMarkColumns
 from docling_eval.evaluators.stats import DatasetStatistics, compute_stats
+
+_log = logging.getLogger(__name__)
 
 
 class ClassLayoutEvaluation(BaseModel):
@@ -84,15 +86,23 @@ class DatasetLayoutEvaluation(BaseModel):
 
 class LayoutEvaluator:
 
-    def __init__(self) -> None:
+    def __init__(
+        self, label_mapping: Optional[Dict[DocItemLabel, Optional[DocItemLabel]]] = None
+    ) -> None:
         self.filter_labels = []
         self.label_names = {}
+        self.label_mapping = label_mapping or {v: v for v in DocItemLabel}
 
         for i, _ in enumerate(DEFAULT_EXPORT_LABELS):
             self.filter_labels.append(_)
             self.label_names[i] = _
 
-    def __call__(self, ds_path: Path, split: str = "test") -> DatasetLayoutEvaluation:
+    def __call__(
+        self,
+        ds_path: Path,
+        split: str = "test",
+        pred_dict: Optional[Dict[str, DoclingDocument]] = None,
+    ) -> DatasetLayoutEvaluation:
         logging.info("Loading the split '%s' from: '%s'", split, ds_path)
 
         # Load the dataset
@@ -106,7 +116,7 @@ class LayoutEvaluator:
         ds_selection: Dataset = ds[split]
 
         true_labels, pred_labels, intersection_labels = self._find_intersecting_labels(
-            ds_selection
+            ds_selection, pred_dict=pred_dict
         )
         intersection_labels_str = "\n" + "\n".join(sorted(intersection_labels))
         logging.info(f"Intersection labels: {intersection_labels_str}")
@@ -122,12 +132,19 @@ class LayoutEvaluator:
             ncols=120,
             total=len(ds_selection),
         ):
+            doc_id = data[BenchMarkColumns.DOC_ID]
+
             true_doc_dict = data[BenchMarkColumns.GROUNDTRUTH]
             true_doc = DoclingDocument.model_validate_json(true_doc_dict)
-            pred_doc_dict = data[BenchMarkColumns.PREDICTION]
-            pred_doc = DoclingDocument.model_validate_json(pred_doc_dict)
+            if pred_dict is None:
+                pred_doc_dict = data[BenchMarkColumns.PREDICTION]
+                pred_doc = DoclingDocument.model_validate_json(pred_doc_dict)
+            else:
+                if doc_id not in pred_dict:
+                    _log.error("Missing pred_doc from dict argument for %s", doc_id)
+                    continue
+                pred_doc = pred_dict[doc_id]
 
-            doc_id = data[BenchMarkColumns.DOC_ID]
             gts, preds = self._extract_layout_data(
                 doc_id=doc_id,
                 true_doc=true_doc,
@@ -135,20 +152,30 @@ class LayoutEvaluator:
                 filter_labels=intersection_labels,
             )
 
-            if len(gts) == len(preds):
+            if len(gts) > 0:
                 for i in range(len(gts)):
                     doc_ids.append(data[BenchMarkColumns.DOC_ID] + f"-page-{i}")
 
                 ground_truths.extend(gts)
-                predictions.extend(preds)
-            else:
-                mismatched_docs += 1
-                logging.error(
-                    "Mismatch in len of GT (%s) vs pred (%s). Skipping document '%s'.",
-                    len(gts),
-                    len(preds),
-                    doc_id,
-                )
+
+                if len(gts) == len(preds):
+                    predictions.extend(preds)
+                else:
+                    mismatched_docs += 1
+                    logging.error(
+                        "Mismatch in len of GT (%s) vs pred (%s) in document_id '%s'.",
+                        len(gts),
+                        len(preds),
+                        doc_id,
+                    )
+
+                    predictions.append(
+                        {
+                            "boxes": torch.empty(0, 4),
+                            "labels": torch.empty(0),
+                            "scores": torch.empty(0),
+                        }
+                    )
 
         if mismatched_docs > 0:
             logging.error(
@@ -170,13 +197,6 @@ class LayoutEvaluator:
         result = metric.compute()
 
         evaluations_per_class: List[ClassLayoutEvaluation] = []
-
-        # TODO: Why do we need the next for loop?
-        # for key, value in result.items():
-        #     if isinstance(value, float):
-        #         evaluations_per_class.append(
-        #             ClassLayoutEvaluation(name=key, value=value, label=None)
-        #         )
 
         total_mAP = result["map"]
         if "map_per_class" in result:
@@ -338,7 +358,7 @@ class LayoutEvaluator:
         }
 
     def _find_intersecting_labels(
-        self, ds: Dataset
+        self, ds: Dataset, pred_dict: Optional[Dict[str, DoclingDocument]] = None
     ) -> tuple[dict[str, int], dict[str, int], list[DocItemLabel]]:
         r"""
         Compute counters per labels for the groundtruth, prediciton and their intersections
@@ -356,27 +376,39 @@ class LayoutEvaluator:
         for i, data in tqdm(
             enumerate(ds), desc="Layout evaluations", ncols=120, total=len(ds)
         ):
+            doc_id = data[BenchMarkColumns.DOC_ID]
+
             true_doc_dict = data[BenchMarkColumns.GROUNDTRUTH]
             true_doc = DoclingDocument.model_validate_json(true_doc_dict)
 
-            pred_doc_dict = data[BenchMarkColumns.PREDICTION]
-            pred_doc = DoclingDocument.model_validate_json(pred_doc_dict)
+            if pred_dict is None:
+                pred_doc_dict = data[BenchMarkColumns.PREDICTION]
+                pred_doc = DoclingDocument.model_validate_json(pred_doc_dict)
+            else:
+                if doc_id not in pred_dict:
+                    _log.error("Missing pred_doc from dict argument for %s", doc_id)
+                    continue
+                pred_doc = pred_dict[doc_id]
 
             for item, level in true_doc.iterate_items():
                 if isinstance(item, DocItem):  # and item.label in filter_labels:
                     for prov in item.prov:
-                        if item.label in true_labels:
+                        if item.label in [
+                            self.label_mapping[v] for v in true_labels if v is not None  # type: ignore
+                        ]:
                             true_labels[item.label] += 1
-                        else:
-                            true_labels[item.label] = 1
+                        elif self.label_mapping[item.label]:
+                            true_labels[self.label_mapping[item.label]] = 1  # type: ignore
 
             for item, level in pred_doc.iterate_items():
                 if isinstance(item, DocItem):  # and item.label in filter_labels:
                     for prov in item.prov:
-                        if item.label in pred_labels:
+                        if item.label in [
+                            self.label_mapping[v] for v in pred_labels if v is not None  # type: ignore
+                        ]:
                             pred_labels[item.label] += 1
-                        else:
-                            pred_labels[item.label] = 1
+                        elif self.label_mapping[item.label] is not None:
+                            pred_labels[self.label_mapping[item.label]] = 1  # type: ignore
 
         """
         logging.info(f"True labels:")
@@ -422,7 +454,10 @@ class LayoutEvaluator:
         pred_pages_to_objects: Dict[int, List[DocItem]] = {}
 
         for item, level in true_doc.iterate_items():
-            if isinstance(item, DocItem) and item.label in filter_labels:
+            if (
+                isinstance(item, DocItem)
+                and self.label_mapping[item.label] in filter_labels
+            ):
                 for prov in item.prov:
                     if prov.page_no not in true_pages_to_objects:
                         true_pages_to_objects[prov.page_no] = [item]
@@ -430,7 +465,10 @@ class LayoutEvaluator:
                         true_pages_to_objects[prov.page_no].append(item)
 
         for item, level in pred_doc.iterate_items():
-            if isinstance(item, DocItem) and item.label in filter_labels:
+            if (
+                isinstance(item, DocItem)
+                and self.label_mapping[item.label] in filter_labels
+            ):
                 for prov in item.prov:
                     if prov.page_no not in pred_pages_to_objects:
                         pred_pages_to_objects[prov.page_no] = [item]
@@ -464,7 +502,7 @@ class LayoutEvaluator:
                     # logging.info(f"ground-truth {page_no}: {page_width, page_height} -> {item.label}, {bbox.coord_origin}: [{bbox.l}, {bbox.t}, {bbox.r}, {bbox.b}]")
 
                     bboxes.append([bbox.l, bbox.t, bbox.r, bbox.b])
-                    labels.append(filter_labels.index(item.label))
+                    labels.append(filter_labels.index(self.label_mapping[item.label]))  # type: ignore
 
             ground_truths.append(
                 {
@@ -492,7 +530,7 @@ class LayoutEvaluator:
                     bbox = bbox.scaled(100.0)
 
                     bboxes.append([bbox.l, bbox.t, bbox.r, bbox.b])
-                    labels.append(filter_labels.index(item.label))
+                    labels.append(filter_labels.index(self.label_mapping[item.label]))  # type: ignore
                     scores.append(1.0)  # FIXME
 
             predictions.append(

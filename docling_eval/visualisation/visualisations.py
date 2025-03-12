@@ -264,7 +264,7 @@ def save_comparison_html_with_clusters(
                 continue
 
             tlo_bbox = prov.bbox.to_top_left_origin(
-                page_height=true_doc.pages[prov.page_no].size.height
+                page_height=doc.pages[prov.page_no].size.height
             )
             cluster = Cluster(
                 id=idx,
@@ -274,8 +274,8 @@ def save_comparison_html_with_clusters(
             )
             clusters.append(cluster)
 
-        scale_x = image.width / true_doc.pages[1].size.width
-        scale_y = image.height / true_doc.pages[1].size.height
+        scale_x = image.width / doc.pages[1].size.width
+        scale_y = image.height / doc.pages[1].size.height
         draw_clusters(image, clusters, scale_x, scale_y)
 
         return image
@@ -299,7 +299,7 @@ def save_comparison_html_with_clusters(
                 continue
 
             tlo_bbox = prov.bbox.to_top_left_origin(
-                page_height=true_doc.pages[prov.page_no].size.height
+                page_height=doc.pages[prov.page_no].size.height
             )
             ro_bbox = tlo_bbox.normalized(doc.pages[prov.page_no].size)
             ro_bbox.l = round(ro_bbox.l * image.width)

@@ -48,10 +48,8 @@ from docling_eval.evaluators.table_evaluator import (
 )
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
-log = logging.getLogger(__name__)
+logging.getLogger("docling").setLevel(logging.WARNING)
+_log = logging.getLogger(__name__)
 
 app = typer.Typer(
     name="docling-eval",
@@ -104,10 +102,10 @@ def log_and_save_stats(
     content += tabulate(data, headers=headers, tablefmt="github")
     content += "\n\n\n"
 
-    log.info(content)
+    _log.info(content)
     with open(log_filename, log_mode) as fd:
         fd.write(content)
-        log.info("Saving statistics report to %s", log_filename)
+        _log.info("Saving statistics report to %s", log_filename)
 
     return log_filename, fig_filename
 
@@ -121,7 +119,9 @@ def create(
     converter_type: ConverterTypes = ConverterTypes.DOCLING,
     artifacts_path: Optional[Path] = None,
     split: str = "test",
-    max_items: int = 1000,
+    begin_index: int = 0,
+    end_index: int = 1000,
+    debug: bool = False,
 ):
     r""""""
     if odir is None:
@@ -129,7 +129,7 @@ def create(
 
     if benchmark == BenchMarkNames.DPBENCH:
         if idir is None:
-            log.error("The input dir for %s must be provided", BenchMarkNames.DPBENCH)
+            _log.error("The input dir for %s must be provided", BenchMarkNames.DPBENCH)
         assert idir is not None
 
         if (
@@ -155,11 +155,11 @@ def create(
             )
 
         else:
-            log.error(f"{modality} is not yet implemented for {benchmark}")
+            _log.error(f"{modality} is not yet implemented for {benchmark}")
 
     elif benchmark == BenchMarkNames.OMNIDOCBENCH:
         if idir is None:
-            log.error("The input dir for %s must be provided", BenchMarkNames.DPBENCH)
+            _log.error("The input dir for %s must be provided", BenchMarkNames.DPBENCH)
         assert idir is not None
 
         if (
@@ -182,43 +182,43 @@ def create(
                 artifacts_path=artifacts_path,
             )
         else:
-            log.error(f"{modality} is not yet implemented for {benchmark}")
+            _log.error(f"{modality} is not yet implemented for {benchmark}")
 
     elif benchmark == BenchMarkNames.PUBTABNET:
         if modality == EvaluationModality.TABLE_STRUCTURE:
-            log.info("Create the tableformer converted PubTabNet dataset")
+            _log.info("Create the tableformer converted PubTabNet dataset")
             create_pubtabnet_tableformer_dataset(
                 output_dir=odir,
-                max_items=max_items,
+                end_index=end_index,
                 do_viz=True,
                 artifacts_path=artifacts_path,
             )
         else:
-            log.error(f"{modality} is not yet implemented for {benchmark}")
+            _log.error(f"{modality} is not yet implemented for {benchmark}")
 
     elif benchmark == BenchMarkNames.FINTABNET:
         if modality == EvaluationModality.TABLE_STRUCTURE:
-            log.info("Create the tableformer converted FinTabNet dataset")
+            _log.info("Create the tableformer converted FinTabNet dataset")
             create_fintabnet_tableformer_dataset(
                 output_dir=odir,
-                max_items=max_items,
+                end_index=end_index,
                 do_viz=True,
                 artifacts_path=artifacts_path,
             )
         else:
-            log.error(f"{modality} is not yet implemented for {benchmark}")
+            _log.error(f"{modality} is not yet implemented for {benchmark}")
 
     elif benchmark == BenchMarkNames.PUB1M:
         if modality == EvaluationModality.TABLE_STRUCTURE:
-            log.info("Create the tableformer converted Pub1M dataset")
+            _log.info("Create the tableformer converted Pub1M dataset")
             create_p1m_tableformer_dataset(
                 output_dir=odir,
-                max_items=max_items,
+                end_index=end_index,
                 do_viz=True,
                 artifacts_path=artifacts_path,
             )
         else:
-            log.error(f"{modality} is not yet implemented for {benchmark}")
+            _log.error(f"{modality} is not yet implemented for {benchmark}")
 
     elif benchmark == BenchMarkNames.DOCLAYNETV1:
         if modality == EvaluationModality.LAYOUT:
@@ -228,13 +228,15 @@ def create(
                 output_dir=odir,
                 converter_type=converter_type,
                 do_viz=True,
-                max_items=max_items,
+                begin_index=begin_index,
+                end_index=end_index,
+                do_debug=debug,
             )
         else:
-            log.error(f"{modality} is not yet implemented for {benchmark}")
+            _log.error(f"{modality} is not yet implemented for {benchmark}")
 
     else:
-        log.error(f"{benchmark} is not yet implemented")
+        _log.error(f"{benchmark} is not yet implemented")
 
 
 def evaluate(
@@ -246,13 +248,13 @@ def evaluate(
 ):
     r""""""
     if not os.path.exists(idir):
-        log.error(f"Benchmark directory not found: {idir}")
+        _log.error(f"Benchmark directory not found: {idir}")
 
     # Save the evaluation
     save_fn = odir / f"evaluation_{benchmark.value}_{modality.value}.json"
 
     if modality == EvaluationModality.END2END:
-        log.error("not supported")
+        _log.error("not supported")
 
     elif modality == EvaluationModality.LAYOUT:
         layout_evaluator = LayoutEvaluator()
@@ -312,7 +314,7 @@ def evaluate(
     elif modality == EvaluationModality.CODE_TRANSCRIPTION:
         pass
 
-    log.info("The evaluation has been saved in '%s'", save_fn)
+    _log.info("The evaluation has been saved in '%s'", save_fn)
 
 
 def visualise(
@@ -346,7 +348,7 @@ def visualise(
         content += "\n\nTotal mAP[0.5:0.05:0.95] (reported as %): {:.2f}".format(
             100.0 * layout_evaluation.mAP
         )
-        log.info(content)
+        _log.info(content)
         with open(log_filename, "a") as fd:
             fd.write(content)
 
@@ -527,16 +529,40 @@ def main(
             help="Load artifacts from local path",
         ),
     ] = None,
-    max_items: Annotated[
+    begin_index: Annotated[
         int,
         typer.Option(
             ...,
-            "-n",  # Short name
-            "--max-items",  # Long name
-            help="How many items to load from the original dataset",
+            "-bi",  # Short name
+            "--begin_index",  # Long name
+            help="Begin converting from the given sample index (inclusive). Zero based.",
+        ),
+    ] = 0,
+    end_index: Annotated[
+        int,
+        typer.Option(
+            ...,
+            "-ei",  # Short name
+            "--end_index",  # Long name
+            help="End converting to the given sample index (exclusive). Zero based. -1 indicates to take all",
         ),
     ] = 1000,
+    debug: Annotated[
+        bool,
+        typer.Option(
+            ...,
+            help="Enable debugging",
+        ),
+    ] = False,
 ):
+    # Set the log level
+    log_format = "%(asctime)s - %(levelname)s - %(message)s"
+    # if debug:
+    #     logging.basicConfig(level=logging.DEBUG, format=log_format)
+    # else:
+    #     logging.basicConfig(level=logging.INFO, format=log_format)
+    logging.basicConfig(level=logging.INFO, format=log_format)
+
     # Dispatch the command
     if task == EvaluationTask.CREATE:
         create(
@@ -547,7 +573,9 @@ def main(
             converter_type=converter_type,
             artifacts_path=artifacts_path,
             split=split,
-            max_items=max_items,
+            begin_index=begin_index,
+            end_index=end_index,
+            debug=debug,
         )
 
     elif task == EvaluationTask.EVALUATE:
@@ -559,7 +587,7 @@ def main(
         visualise(modality, benchmark, idir, odir, split)
 
     else:
-        log.error("Unsupported command: '%s'", task.value)
+        _log.error("Unsupported command: '%s'", task.value)
 
 
 if __name__ == "__main__":
