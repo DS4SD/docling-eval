@@ -58,6 +58,7 @@ On our list for next benchmarks:
 
 - [OmniOCR](getomni-ai/ocr-benchmark)
 - Hyperscalers
+- [CoMix](https://github.com/emanuelevivoli/CoMix/tree/main/docs/datasets)
 
 ## Contributing
 
